@@ -1,0 +1,32 @@
+{
+  "name": "mischa0x-spotify",
+  "version": "1.0.0",
+  "description": "A production-ready Next.js 14 application for viewing Spotify listening statistics. Features NextAuth authentication with Spotify provider, secure token refresh, admin panel, and full API rate limiting.",
+  "main": "ecosystem.config.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "autoprefixer": "^10.4.20",
+    "next": "^14.2.21",
+    "next-auth": "^4.24.10",
+    "postcss": "^8.4.47",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.27",
+    "@types/react": "^18.3.27",
+    "@types/react-dom": "^18.3.7",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.21",
+    "typescript": "^5.9.3"
+  }
+}
