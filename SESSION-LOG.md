@@ -1,6 +1,29 @@
 # Spotify Stats App - Session Log
-**Date:** 2025-12-25
 **Deployed:** https://mischa0x.com/krychek
+
+---
+
+## 2025-12-27: Krychek Profile Page
+
+### Changes
+- Replaced home page with personalized "Krychek's Top Songs 2025" profile
+- Added embedded Spotify playlist (100 tracks playable)
+- Added personality profile based on music taste analysis:
+  - Deep focus thinker (ambient/electronic for complex work)
+  - Digs deep not wide (obscure artists, active hunting)
+  - Has layers (aggression under the ambient, Hall & Oates for levity)
+  - European electronic sensibility
+  - Late night person (2am music)
+- Added top 30 track list with visual display
+- Created `/krychek` route (unused, home page has content)
+
+### Files Modified
+- `src/app/page.tsx` - Complete rewrite with profile content
+- `src/app/krychek/page.tsx` - New (duplicate, can be removed)
+
+---
+
+## 2025-12-25: Initial Build
 
 ## What was built
 - Next.js 14 App Router with TypeScript

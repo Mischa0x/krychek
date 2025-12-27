@@ -38,7 +38,7 @@ const TOP_SONGS = [
   { rank: 30, name: 'Private Eyes', artist: 'Daryl Hall & John Oates' },
 ];
 
-export default function HomePage() {
+export default function KrychekPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       {/* Header */}
