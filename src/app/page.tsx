@@ -1,9 +1,11 @@
-import { Metadata } from 'next';
+'use client';
 
-export const metadata: Metadata = {
-  title: 'Krychek | Top Songs 2025',
-  description: 'A deep dive into my music taste and what it says about me',
-};
+import dynamic from 'next/dynamic';
+
+const HolographicOrb = dynamic(
+  () => import('@/components/hologram/HolographicOrb'),
+  { ssr: false }
+);
 
 const TOP_SONGS = [
   { rank: 1, name: 'Helios', artist: 'So Lis' },
@@ -41,18 +43,27 @@ const TOP_SONGS = [
 export default function HomePage() {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      {/* Header */}
-      <div className="text-center mb-12">
-        <h1 className="text-4xl sm:text-5xl font-bold text-white mb-4">
-          Krychek&apos;s Top Songs 2025
-        </h1>
-        <p className="text-spotify-lightgray text-lg">
-          100 tracks that defined my year
-        </p>
+      {/* Holographic Orb Hero */}
+      <div className="flex flex-col items-center mb-16">
+        <div className="relative">
+          {/* Ambient glow behind orb */}
+          <div className="absolute inset-0 blur-3xl opacity-30 bg-gradient-radial from-cyan-500 via-blue-600 to-transparent" />
+          <HolographicOrb size={350} className="relative z-10" />
+        </div>
+
+        {/* Title overlaid below orb */}
+        <div className="text-center mt-8">
+          <h1 className="text-4xl sm:text-5xl font-bold text-white mb-4 tracking-tight">
+            Krychek
+          </h1>
+          <p className="text-spotify-lightgray text-lg opacity-80">
+            100 tracks that defined 2025
+          </p>
+        </div>
       </div>
 
       {/* Profile Section */}
-      <div className="bg-gradient-to-br from-spotify-darkgray to-zinc-900 rounded-2xl p-8 mb-12 border border-zinc-800">
+      <div className="bg-gradient-to-br from-spotify-darkgray/80 to-zinc-900/80 backdrop-blur-sm rounded-2xl p-8 mb-12 border border-zinc-800/50">
         <h2 className="text-2xl font-bold text-white mb-6">The Profile</h2>
 
         <div className="space-y-6 text-spotify-lightgray">
@@ -124,7 +135,7 @@ export default function HomePage() {
           {TOP_SONGS.map((song) => (
             <div
               key={song.rank}
-              className="flex items-center space-x-4 p-4 bg-spotify-darkgray rounded-lg hover:bg-spotify-gray transition-colors"
+              className="flex items-center space-x-4 p-4 bg-spotify-darkgray/60 backdrop-blur-sm rounded-lg hover:bg-spotify-gray/60 transition-colors border border-zinc-800/30"
             >
               <span className="text-2xl font-bold text-spotify-lightgray w-8 text-right">
                 {song.rank}
@@ -136,7 +147,7 @@ export default function HomePage() {
             </div>
           ))}
         </div>
-        <p className="text-spotify-lightgray text-center mt-6">
+        <p className="text-spotify-lightgray text-center mt-6 opacity-60">
           Use the player above to explore all 100 tracks
         </p>
       </div>
