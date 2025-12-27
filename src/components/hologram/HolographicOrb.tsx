@@ -8,7 +8,7 @@ interface HolographicOrbProps {
   className?: string;
 }
 
-// Simplex noise implementation
+// Simplex noise - retained for organic motion
 class SimplexNoise {
   p: Uint8Array;
   perm: Uint8Array;
@@ -79,16 +79,15 @@ class SimplexNoise {
   }
 }
 
-// Cinematic post-processing shader
+// SUBTRACTED: Removed scanlines, sweep effect, flicker
+// RETAINED: Vignette (supports depth), grain (minimal), chromatic aberration (subtle)
 const CinematicShader = {
   uniforms: {
     tDiffuse: { value: null },
     uTime: { value: 0 },
-    uGrainIntensity: { value: 0.035 },
-    uVignetteIntensity: { value: 0.4 },
-    uScanlineIntensity: { value: 0.04 },
-    uChromaticAberration: { value: 0.002 },
-    uFlickerIntensity: { value: 0 }
+    uGrainIntensity: { value: 0.015 }, // Reduced 60%
+    uVignetteIntensity: { value: 0.5 }, // Increased for darkness
+    uChromaticAberration: { value: 0.001 } // Halved
   },
   vertexShader: `
     varying vec2 vUv;
@@ -102,9 +101,7 @@ const CinematicShader = {
     uniform float uTime;
     uniform float uGrainIntensity;
     uniform float uVignetteIntensity;
-    uniform float uScanlineIntensity;
     uniform float uChromaticAberration;
-    uniform float uFlickerIntensity;
     varying vec2 vUv;
 
     float random(vec2 co) {
@@ -122,35 +119,24 @@ const CinematicShader = {
       color.b = texture2D(tDiffuse, uv - vec2(aberrationAmount, 0.0)).b;
       color.a = 1.0;
 
-      float scanline = sin(uv.y * 800.0 + uTime * 2.0) * 0.5 + 0.5;
-      scanline = pow(scanline, 8.0);
-      color.rgb -= scanline * uScanlineIntensity;
-
-      float sweep = sin(uTime * 0.3) * 0.5 + 0.5;
-      float sweepLine = smoothstep(sweep - 0.002, sweep, uv.y) - smoothstep(sweep, sweep + 0.002, uv.y);
-      color.rgb += sweepLine * 0.1 * vec3(0.6, 0.8, 1.0);
-
-      float grain = random(uv + fract(uTime)) * 2.0 - 1.0;
+      // Minimal grain
+      float grain = random(uv + fract(uTime * 0.1)) * 2.0 - 1.0;
       color.rgb += grain * uGrainIntensity;
 
-      float vignette = 1.0 - distFromCenter * distFromCenter * uVignetteIntensity * 2.0;
+      // Strong vignette - darkness is allowed
+      float vignette = 1.0 - distFromCenter * distFromCenter * uVignetteIntensity * 2.5;
       vignette = smoothstep(0.0, 1.0, vignette);
       color.rgb *= vignette;
-
-      vec3 shadows = vec3(0.1, 0.15, 0.2);
-      vec3 highlights = vec3(1.05, 1.0, 0.95);
-      float luminance = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-      color.rgb = mix(color.rgb * (1.0 + shadows * 0.5), color.rgb * highlights, luminance);
-
-      color.rgb *= (1.0 - uFlickerIntensity * random(vec2(uTime * 10.0, 0.0)));
 
       gl_FragColor = color;
     }
   `
 };
 
-const CORE_PARTICLE_COUNT = 45000;
-const ATMOSPHERE_PARTICLE_COUNT = 3000;
+// SUBTRACTED: 60% particle reduction (45000 → 18000)
+// SUBTRACTED: Removed atmosphere particles entirely
+// SUBTRACTED: Removed ground fog
+const CORE_PARTICLE_COUNT = 18000;
 
 export default function HolographicOrb({ size = 400, className = '' }: HolographicOrbProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -161,26 +147,14 @@ export default function HolographicOrb({ size = 400, className = '' }: Holograph
     composer: any | null;
     cinematicPass: any | null;
     coreParticles: THREE.Points | null;
-    atmosphereParticles: THREE.Points | null;
-    groundFog: THREE.Mesh | null;
     noise: SimplexNoise;
     time: number;
     frameId: number;
     cameraDrift: {
       targetTheta: number;
-      targetPhi: number;
-      targetRadius: number;
       currentTheta: number;
-      currentPhi: number;
-      currentRadius: number;
       driftSpeed: number;
       smoothing: number;
-    };
-    narrativeState: {
-      deepBreathTimer: number;
-      deepBreathInterval: number;
-      deepBreathActive: boolean;
-      deepBreathPhase: number;
     };
   }>({
     renderer: null,
@@ -189,26 +163,15 @@ export default function HolographicOrb({ size = 400, className = '' }: Holograph
     composer: null,
     cinematicPass: null,
     coreParticles: null,
-    atmosphereParticles: null,
-    groundFog: null,
     noise: new SimplexNoise(),
     time: 0,
     frameId: 0,
+    // SUBTRACTED: Removed phi/radius animation - only theta drift remains (one motion type)
     cameraDrift: {
       targetTheta: 0,
-      targetPhi: Math.PI / 6,
-      targetRadius: 8,
       currentTheta: 0,
-      currentPhi: Math.PI / 6,
-      currentRadius: 8,
-      driftSpeed: 0.00009,
-      smoothing: 0.018
-    },
-    narrativeState: {
-      deepBreathTimer: 0,
-      deepBreathInterval: 25,
-      deepBreathActive: false,
-      deepBreathPhase: 0
+      driftSpeed: 0.00003, // Reduced 70% - stillness equals confidence
+      smoothing: 0.008 // Slower easing
     }
   });
 
@@ -218,7 +181,6 @@ export default function HolographicOrb({ size = 400, className = '' }: Holograph
     const container = containerRef.current;
     const state = stateRef.current;
 
-    // Dynamic imports for post-processing
     Promise.all([
       import('three/examples/jsm/postprocessing/EffectComposer.js'),
       import('three/examples/jsm/postprocessing/RenderPass.js'),
@@ -230,16 +192,13 @@ export default function HolographicOrb({ size = 400, className = '' }: Holograph
       { UnrealBloomPass },
       { ShaderPass }
     ]) => {
-      // Scene
       const scene = new THREE.Scene();
       state.scene = scene;
 
-      // Camera
       const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 1000);
-      camera.position.set(0, 2, 8);
+      camera.position.set(0, 1.5, 9); // Static vertical position
       state.camera = camera;
 
-      // Renderer
       const renderer = new THREE.WebGLRenderer({
         antialias: true,
         alpha: true,
@@ -251,13 +210,16 @@ export default function HolographicOrb({ size = 400, className = '' }: Holograph
       container.appendChild(renderer.domElement);
       state.renderer = renderer;
 
-      // Post-processing
       const composer = new EffectComposer(renderer);
       composer.addPass(new RenderPass(scene, camera));
 
+      // SUBTRACTED: Bloom reduced significantly
+      // Smaller radius, faster falloff, lower strength
       const bloomPass = new UnrealBloomPass(
         new THREE.Vector2(size, size),
-        0.45, 1.2, 0.78
+        0.25,  // strength: 0.45 → 0.25
+        0.6,   // radius: 1.2 → 0.6
+        0.85   // threshold: 0.78 → 0.85 (higher = less bloom)
       );
       composer.addPass(bloomPass);
 
@@ -266,39 +228,22 @@ export default function HolographicOrb({ size = 400, className = '' }: Holograph
       state.composer = composer;
       state.cinematicPass = cinematicPass;
 
-      // Create atmospheric particles
-      createAtmosphericParticles(scene, state);
-
-      // Create core particle field
       createCoreParticles(scene, state);
 
-      // Create ground fog
-      createGroundFog(scene, state);
-
-      // Animation loop
       const animate = () => {
         state.frameId = requestAnimationFrame(animate);
 
         const deltaTime = 0.016;
         state.time += deltaTime;
 
-        // Update camera drift
         updateCameraDrift(state);
 
-        // Update narrative tension (breathing)
-        updateNarrativeTension(deltaTime, state);
-
-        // Update cinematic shader
         if (state.cinematicPass) {
           state.cinematicPass.uniforms.uTime.value = state.time;
-          const flickerChance = Math.random();
-          state.cinematicPass.uniforms.uFlickerIntensity.value = flickerChance > 0.995 ? 0.3 : 0;
         }
 
-        // Update particles
         updateParticles(state);
 
-        // Render
         if (state.composer) {
           state.composer.render();
         }
@@ -307,7 +252,6 @@ export default function HolographicOrb({ size = 400, className = '' }: Holograph
       animate();
     });
 
-    // Cleanup
     return () => {
       cancelAnimationFrame(state.frameId);
       if (state.renderer) {
@@ -338,75 +282,21 @@ export default function HolographicOrb({ size = 400, className = '' }: Holograph
   );
 }
 
-function createAtmosphericParticles(scene: THREE.Scene, state: any) {
-  const positions = new Float32Array(ATMOSPHERE_PARTICLE_COUNT * 3);
-  const sizes = new Float32Array(ATMOSPHERE_PARTICLE_COUNT);
-  const alphas = new Float32Array(ATMOSPHERE_PARTICLE_COUNT);
-
-  for (let i = 0; i < ATMOSPHERE_PARTICLE_COUNT; i++) {
-    const i3 = i * 3;
-    positions[i3] = (Math.random() - 0.5) * 15;
-    positions[i3 + 1] = (Math.random() - 0.5) * 10 - 1;
-    positions[i3 + 2] = (Math.random() - 0.5) * 15;
-    sizes[i] = 0.5 + Math.random() * 2.0;
-    alphas[i] = 0.02 + Math.random() * 0.04;
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-  geometry.setAttribute('alpha', new THREE.BufferAttribute(alphas, 1));
-
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: { value: 0 },
-      uScale: { value: Math.min(window.devicePixelRatio, 2) }
-    },
-    vertexShader: `
-      attribute float size;
-      attribute float alpha;
-      varying float vAlpha;
-      uniform float uScale;
-      void main() {
-        vAlpha = alpha;
-        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-        gl_Position = projectionMatrix * mvPos;
-        gl_PointSize = size * uScale * 30.0 / -mvPos.z;
-      }
-    `,
-    fragmentShader: `
-      varying float vAlpha;
-      void main() {
-        vec2 uv = gl_PointCoord - 0.5;
-        float d = length(uv);
-        float alpha = smoothstep(0.5, 0.0, d) * vAlpha;
-        gl_FragColor = vec4(0.6, 0.5, 0.7, alpha);
-      }
-    `,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false
-  });
-
-  state.atmosphereParticles = new THREE.Points(geometry, material);
-  scene.add(state.atmosphereParticles);
-}
-
 function createCoreParticles(scene: THREE.Scene, state: any) {
   const positions = new Float32Array(CORE_PARTICLE_COUNT * 3);
   const colors = new Float32Array(CORE_PARTICLE_COUNT * 3);
   const sizes = new Float32Array(CORE_PARTICLE_COUNT);
   const basePositions = new Float32Array(CORE_PARTICLE_COUNT * 3);
-  const velocities = new Float32Array(CORE_PARTICLE_COUNT * 3);
-  const phases = new Float32Array(CORE_PARTICLE_COUNT);
-  const lifetimes = new Float32Array(CORE_PARTICLE_COUNT);
 
   for (let i = 0; i < CORE_PARTICLE_COUNT; i++) {
     const i3 = i * 3;
 
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
-    const rawRadius = Math.pow(Math.random(), 0.55) * 2.4;
+
+    // Non-uniform distribution - ±5% imperfection
+    const imperfection = 0.95 + Math.random() * 0.1;
+    const rawRadius = Math.pow(Math.random(), 0.55) * 2.2 * imperfection;
 
     const x = rawRadius * Math.sin(phi) * Math.cos(theta);
     const y = rawRadius * Math.sin(phi) * Math.sin(theta);
@@ -420,32 +310,23 @@ function createCoreParticles(scene: THREE.Scene, state: any) {
     basePositions[i3 + 1] = y;
     basePositions[i3 + 2] = z;
 
-    velocities[i3] = (Math.random() - 0.5) * 0.001;
-    velocities[i3 + 1] = (Math.random() - 0.5) * 0.001;
-    velocities[i3 + 2] = (Math.random() - 0.5) * 0.001;
+    // Increased size variance for visible gaps
+    sizes[i] = 0.15 + Math.random() * 0.8;
 
-    phases[i] = Math.random() * Math.PI * 2;
-    lifetimes[i] = Math.random();
+    // RESTRICTED: Single hue family (cyan/teal) with desaturated accents
+    const distFromCenter = rawRadius / 2.2;
+    const brightness = 0.4 + distFromCenter * 0.5; // Brighter at edges
 
-    sizes[i] = 0.25 + Math.random() * 0.6;
+    // Primary: Cyan-teal (one hue family)
+    colors[i3] = 0.15 + Math.random() * 0.15;     // R: low
+    colors[i3 + 1] = 0.5 + brightness * 0.4;      // G: medium-high
+    colors[i3 + 2] = 0.7 + brightness * 0.25;     // B: high
 
-    // Color gradient based on distance from center
-    const distFromCenter = rawRadius / 2.4;
-    if (distFromCenter > 0.65) {
-      // Outer - cyan/teal
-      colors[i3] = 0.5 + Math.random() * 0.35;
-      colors[i3 + 1] = 0.75 + Math.random() * 0.2;
-      colors[i3 + 2] = 0.85 + Math.random() * 0.1;
-    } else if (distFromCenter > 0.35) {
-      // Mid - purple/magenta
-      colors[i3] = 0.65 + Math.random() * 0.25;
-      colors[i3 + 1] = 0.35 + Math.random() * 0.3;
-      colors[i3 + 2] = 0.55 + Math.random() * 0.25;
-    } else {
-      // Core - warm pink/red
-      colors[i3] = 0.7 + Math.random() * 0.25;
-      colors[i3 + 1] = 0.12 + Math.random() * 0.2;
-      colors[i3 + 2] = 0.35 + Math.random() * 0.3;
+    // Core is slightly warmer (accent) but still restrained
+    if (distFromCenter < 0.3) {
+      colors[i3] = 0.35 + Math.random() * 0.15;   // Slight warmth
+      colors[i3 + 1] = 0.45;
+      colors[i3 + 2] = 0.6;
     }
   }
 
@@ -453,64 +334,60 @@ function createCoreParticles(scene: THREE.Scene, state: any) {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-  geometry.setAttribute('lifetime', new THREE.BufferAttribute(lifetimes, 1));
-  (geometry as any).userData = { basePositions, velocities, phases };
+  (geometry as any).userData = { basePositions };
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
       uScale: { value: Math.min(window.devicePixelRatio, 2) },
-      uBreathPhase: { value: 0 },
-      uDeepBreath: { value: 0 },
-      uPulseIntensity: { value: 0 }
+      uBreathPhase: { value: 0 }
     },
     vertexShader: `
       attribute vec3 color;
       attribute float size;
-      attribute float lifetime;
       varying vec3 vColor;
       varying float vAlpha;
-      varying float vLifetime;
       uniform float uScale;
-      uniform float uTime;
       uniform float uBreathPhase;
-      uniform float uDeepBreath;
-      uniform float uPulseIntensity;
 
       void main() {
         vColor = color;
-        vLifetime = lifetime;
 
-        float breathScale = 1.0 + sin(uBreathPhase) * 0.025;
-        breathScale += uDeepBreath * 0.08;
+        // Single motion type: gentle breathing only
+        float breathScale = 1.0 + sin(uBreathPhase) * 0.012; // Reduced 50%
         vec3 breathedPos = position * breathScale;
 
         vec4 mvPos = modelViewMatrix * vec4(breathedPos, 1.0);
         gl_Position = projectionMatrix * mvPos;
 
-        float depthFactor = 1.0 / (-mvPos.z * 0.07 + 1.0);
-        gl_PointSize = size * uScale * depthFactor * 40.0;
-        gl_PointSize = clamp(gl_PointSize, 0.4, 3.5);
+        float depthFactor = 1.0 / (-mvPos.z * 0.08 + 1.0);
+        gl_PointSize = size * uScale * depthFactor * 35.0;
+        gl_PointSize = clamp(gl_PointSize, 0.3, 3.0);
 
+        // Hero depth plane: particles at 0.6-0.9 radius are brightest
         float dist = length(position);
-        vAlpha = smoothstep(2.6, 0.4, dist) * 0.8;
-        vAlpha *= (1.0 + uPulseIntensity * 0.12);
+        float heroZone = smoothstep(1.3, 1.8, dist) * smoothstep(2.2, 1.9, dist);
+        vAlpha = smoothstep(2.4, 0.3, dist) * 0.6;
+        vAlpha *= (0.5 + heroZone * 0.5); // Hero plane 50% brighter
 
+        // Rim glow retained but reduced
         float rimFactor = 1.0 - abs(dot(normalize(position), normalize(cameraPosition - breathedPos)));
-        vAlpha *= (1.0 + rimFactor * 0.3);
+        vAlpha *= (1.0 + rimFactor * 0.15);
       }
     `,
     fragmentShader: `
       varying vec3 vColor;
       varying float vAlpha;
-      varying float vLifetime;
 
       void main() {
         vec2 uv = gl_PointCoord - 0.5;
         float d = length(uv);
         float alpha = smoothstep(0.5, 0.0, d) * vAlpha;
-        alpha *= 0.7 + vLifetime * 0.3;
-        gl_FragColor = vec4(vColor, alpha * 0.55);
+
+        // Increased contrast instead of density
+        alpha = pow(alpha, 0.85);
+
+        gl_FragColor = vec4(vColor, alpha * 0.5);
       }
     `,
     transparent: true,
@@ -522,78 +399,18 @@ function createCoreParticles(scene: THREE.Scene, state: any) {
   scene.add(state.coreParticles);
 }
 
-function createGroundFog(scene: THREE.Scene, state: any) {
-  const geometry = new THREE.PlaneGeometry(20, 20);
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: { value: 0 }
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      varying vec2 vUv;
-      uniform float uTime;
-      void main() {
-        float distFromCenter = length(vUv - 0.5);
-        float glow = 1.0 - smoothstep(0.0, 0.4, distFromCenter);
-        glow *= glow;
-        glow *= 0.8 + sin(uTime * 0.5) * 0.2;
-        vec3 color = mix(vec3(0.4, 0.2, 0.5), vec3(0.3, 0.6, 0.7), distFromCenter);
-        gl_FragColor = vec4(color, glow * 0.15);
-      }
-    `,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide
-  });
-
-  state.groundFog = new THREE.Mesh(geometry, material);
-  state.groundFog.rotation.x = -Math.PI / 2;
-  state.groundFog.position.y = -2.5;
-  scene.add(state.groundFog);
-}
-
+// SUBTRACTED: Only theta drift remains (removed phi, radius oscillation)
 function updateCameraDrift(state: any) {
   const drift = state.cameraDrift;
-  const time = state.time;
 
   drift.targetTheta += drift.driftSpeed;
-  drift.targetPhi = Math.PI / 6 + Math.sin(time * 0.06) * 0.09;
-  drift.targetRadius = 8 + Math.sin(time * 0.0375) * 0.6;
-
   drift.currentTheta += (drift.targetTheta - drift.currentTheta) * drift.smoothing;
-  drift.currentPhi += (drift.targetPhi - drift.currentPhi) * drift.smoothing;
-  drift.currentRadius += (drift.targetRadius - drift.currentRadius) * drift.smoothing;
 
   if (state.camera) {
-    state.camera.position.x = drift.currentRadius * Math.sin(drift.currentPhi) * Math.cos(drift.currentTheta);
-    state.camera.position.y = drift.currentRadius * Math.cos(drift.currentPhi) + 1.5;
-    state.camera.position.z = drift.currentRadius * Math.sin(drift.currentPhi) * Math.sin(drift.currentTheta);
+    const radius = 9; // Fixed radius
+    state.camera.position.x = radius * Math.sin(drift.currentTheta) * 0.3;
+    state.camera.position.z = radius * Math.cos(drift.currentTheta) * 0.1 + radius;
     state.camera.lookAt(0, 0, 0);
-  }
-}
-
-function updateNarrativeTension(deltaTime: number, state: any) {
-  const ns = state.narrativeState;
-
-  ns.deepBreathTimer += deltaTime;
-  if (ns.deepBreathTimer > ns.deepBreathInterval && !ns.deepBreathActive) {
-    ns.deepBreathActive = true;
-    ns.deepBreathPhase = 0;
-    ns.deepBreathTimer = 0;
-  }
-
-  if (ns.deepBreathActive) {
-    ns.deepBreathPhase += deltaTime * 0.75;
-    if (ns.deepBreathPhase > Math.PI * 2) {
-      ns.deepBreathActive = false;
-    }
   }
 }
 
@@ -601,30 +418,24 @@ function updateParticles(state: any) {
   if (!state.coreParticles) return;
 
   const time = state.time;
-  const breathPhase = time * 0.525;
-  const pulseIntensity = Math.sin(time * 1.05) * 0.5 + 0.5;
 
-  const deepBreathValue = state.narrativeState.deepBreathActive
-    ? Math.sin(state.narrativeState.deepBreathPhase) * (1 - state.narrativeState.deepBreathPhase / (Math.PI * 2))
-    : 0;
+  // Single motion: breathing only (reduced speed 50%)
+  const breathPhase = time * 0.25;
 
   const material = state.coreParticles.material as THREE.ShaderMaterial;
   material.uniforms.uTime.value = time;
   material.uniforms.uBreathPhase.value = breathPhase;
-  material.uniforms.uDeepBreath.value = deepBreathValue;
-  material.uniforms.uPulseIntensity.value = pulseIntensity;
 
-  // Animate particle positions with noise
+  // Noise-based drift - slowed 50%
   const positions = state.coreParticles.geometry.attributes.position.array;
   const userData = state.coreParticles.geometry.userData;
   const basePositions = userData.basePositions;
-  const phases = userData.phases;
 
   for (let i = 0; i < CORE_PARTICLE_COUNT; i++) {
     const i3 = i * 3;
 
-    const noiseScale = 0.35;
-    const noiseSpeed = 0.18;
+    const noiseScale = 0.3;
+    const noiseSpeed = 0.06; // Reduced from 0.18
 
     const nx = state.noise.noise3D(
       basePositions[i3] * noiseScale + time * noiseSpeed,
@@ -642,16 +453,11 @@ function updateParticles(state: any) {
       basePositions[i3 + 2] * noiseScale + time * noiseSpeed
     );
 
-    const displacement = 0.12;
+    const displacement = 0.06; // Reduced from 0.12
     positions[i3] = basePositions[i3] + nx * displacement;
     positions[i3 + 1] = basePositions[i3 + 1] + ny * displacement;
     positions[i3 + 2] = basePositions[i3 + 2] + nz * displacement;
   }
 
   state.coreParticles.geometry.attributes.position.needsUpdate = true;
-
-  // Update ground fog
-  if (state.groundFog) {
-    (state.groundFog.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
-  }
 }
